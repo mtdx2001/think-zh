@@ -70,5 +70,6 @@
 4. **用户新增要求**：发布面不提费用——README 与 COMMUNITY-POST 中 0.0004 元/条、~26 元、谷价、买断、扣费、零成本等表述全部中性化（INSTALL 的 DeepSeek 付费安全提示与踩坑实录保留，属防呆性质）。
 5. **重新打包完成**：`think-zh-portable.zip` 重打（Python zipfile、`/` 分隔、白名单 16 项：文档 4 + LICENSE + app 六必需 + plugin-config + tools 3 + seed 库 + `out\mining.off`），旧包残留 7 个开发脚本已不在包内；实测 8,289,240 字节 ≈ 8.3 MB。
 6. **校验全过**：种子库 75,353 条剔敏复扫零命中；发布面 13 个文本 UTF-8 无 BOM；zip CRC 全过；硬编码 grep 零残留。复核脚本留档 `workspace\think-zh\out\pre_release_check.py`、打包脚本 `repack.py`。
-7. **未做（待用户确认）**：git commit 与 GitHub push / release asset 更新（本轮只动本机，未触网）。
+7. ~~**未做（待用户确认）**~~ → **已完成（见第 9 条）**。
 8. **演示截图（第二张）完成**：`docs/screenshot-reasoning.png`（14 块满窗、全库命中、骨架保留），已嵌 README 并入包，包更新为 17 项 ≈ 8.5 MB。制作要点：观察页流只能来自会话文件监听（API 翻译不入流）；canon 规范化是**块级**的（多句拼块会改变占位符编号导致查库不中，须一句一块）；watcher 用 `DSH_SESSION_JSONL` 指向构造文件即回放（TailDecoder 多帧 zstd，事件格式 `{"type":"reasoning-chunks","data":{"texts":[...],"turn":<数字>}}`）；演示后已恢复 watcher 至真实会话监听并清理临时文件。注意：本会话智能体思考为中文，进英→中管线必然乱翻，演示素材必须取英文推理句（库内 review-% 精修句最佳）。
+9. **发布完成（2026-08-29 晚）**：commit `d3fd518`（20 文件，+293/-597）已 push 至 `github.com/mtdx2001/think-zh` main；Release v1.0.0 的 asset 已替换为新包 8,492,782 bytes（远端=本地校验一致），body 补充截图与 PowerShell 手册说明。**同轮修复 watcher 会话切换缺陷**：`watcher_loop` 每 20 秒重探测最新会话文件（显式 `DSH_SESSION_JSONL` 时不自动切换），切换后从新文件尾部继续、120 秒防抖；发布面与开发工作区副本已同步。**发布脚本坑位备忘**：本机全局 gitconfig 的 `url.ghfast.top.insteadOf` 重写会让一切 push 认证失败（ghfast 只加速下载不支持 push）——push 须用剔除该段的临时 GIT_CONFIG_GLOBAL（脚本 `out/make_push_config.py`）；`gh_update_asset.py` 上传 URL 参数不可含未编码空格（曾致旧 asset 已删新 asset 未传的中间态，去掉 label 参数后恢复）。

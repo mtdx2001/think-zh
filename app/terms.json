@@ -54,6 +54,14 @@
     "acceptance": "验收",
     "probe": "探针",
     "baseline": "基线",
-    "graceful": "优雅"
+    "graceful": "优雅",
+    "playwright": "Playwright",
+    "headless": "无头",
+    "smoke test": "冒烟测试",
+    "dry run": "空跑",
+    "workaround": "变通方案",
+    "edge case": "边界情况",
+    "rollback": "回滚",
+    "race condition": "竞态"
   }
 }
