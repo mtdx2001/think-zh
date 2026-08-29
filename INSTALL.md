@@ -141,6 +141,8 @@ Start-Process python -ArgumentList '-X','utf8','-u','watcher_service.py' -Workin
 ```
 npm i dsh-think-translate
 ```
+> 插件中心标准方式亦可：`dsh plugin --profile desktop add dsh-think-translate`（无论哪种方式，装完都需要下面的 config.json 补丁——原版默认连 Ollama）。
+
 编辑 DSH 桌面 profile 的 `package.json`，`dependencies` 加 `"dsh-think-translate": "^1.0.10"`。
 
 **关键配置补丁**（原版默认连 Ollama，必须改连观察器）：
