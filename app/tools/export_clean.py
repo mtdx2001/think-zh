@@ -1,10 +1,11 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """生成可分享的库副本：剔除含敏感模式的条目（protected 与 translation 双侧检查）。"""
 import sys, os, re, shutil, sqlite3
-sys.path.insert(0, r"E:\DSH011rc1\workspace\think-zh")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # app\ 根
 
-SRC = r"D:\think-zh\app\cache\tm.sqlite3"
-DST = r"D:\think-zh\app\seed\tm-share.sqlite3"
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(APP, "cache", "tm.sqlite3")
+DST = os.path.join(APP, "seed", "tm-share.sqlite3")
 
 PATTERNS = [
     r"sk-[A-Za-z0-9]{8,}",                                   # API key

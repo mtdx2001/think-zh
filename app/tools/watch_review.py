@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import sys, time
-sys.path.insert(0, r"E:\DSH011rc1\workspace\think-zh")
+import os, sys, time
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # app\ 根（tm_store.py 所在）
 import tm_store
 
 def count():

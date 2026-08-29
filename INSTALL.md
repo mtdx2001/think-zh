@@ -2,7 +2,14 @@
 
 > **执行者**：AI 智能体。按步骤顺序执行。每步含【命令】【验证】【失败处理】。
 > 全部步骤完成后执行「最终验收」，通过即安装完成，向用户报告。
-> 约定：`<TZ>` = 本包解压根目录（含 app\ llama\ models\ 的那一层），下文所有命令先 `cd /d <TZ>`。
+> 约定：`<TZ>` = 本包解压根目录（含 app\ llama\ models\ 的那一层）。
+> **本手册全部命令均为 PowerShell 语法**（Windows PowerShell 5.1+ 或 pwsh 7+；**不要在 cmd 里执行**——
+> `cd /d`、`copy /y`、`set X=`、`start "" /min` 都是 cmd 语法，PowerShell 下无效）。
+> 动手前先固定根目录变量，之后所有命令直接可用：
+>
+> ```powershell
+> $TZ = "D:\tools\think-zh"   # ← 换成实际解压根目录
+> ```
 
 ## 大件清单（先看清要下载什么，再动手）
 
@@ -16,12 +23,17 @@
 
 ## 第 0 步：环境探测（先做，任何一条不过先解决再继续）
 
-【命令】逐条运行并记录：
+**平台硬前提（本项目按此交付，不满足则无法安装）**：
+- Windows 10/11 x64（引擎与 CUDA DLL 均为 win-cuda x64 版）
+- NVIDIA GPU：空闲显存 ≥ 3000 MiB，驱动支持 CUDA 12.4+（`nvidia-smi` 能正常出表）
+- 无 N 卡没有官方回退路径（本项目不含 CPU 版引擎），请先解决硬件再继续
 
-```
+【命令】逐条运行并记录（PowerShell）：
+
+```powershell
 python --version
 nvidia-smi --query-gpu=name,memory.free --format=csv
-netstat -ano | findstr ":18765 :8199"
+Get-NetTCPConnection -LocalPort 18765,8199 -ErrorAction SilentlyContinue   # 无输出 = 两端口空闲
 ```
 
 【判据】
@@ -45,26 +57,44 @@ pip install zstandard
 
 ## 第 2 步：引擎 llama-server
 
-若 `<TZ>\llama\llama-server.exe` 已存在则跳过。否则：
+若 `$TZ\llama\llama-server.exe` 已存在则跳过。否则先建目录，再下载：
+
+```powershell
+New-Item -ItemType Directory -Force "$TZ\llama" | Out-Null
+```
 
 【命令】下载 llama.cpp Windows CUDA 发行版（GitHub `ggerganov/llama.cpp` Releases，
-选 `llama-<ver>-bin-win-cuda-x64.zip`），解压后把 `llama-server.exe` 与同目录 CUDA DLL
-（cudart64*.dll、cublas*.dll）放入 `<TZ>\llama\`
-【验证】`<TZ>\llama\llama-server.exe --version` 输出版本号
-【失败处理】无 N 卡驱动报错 → 先装 NVIDIA 驱动；下载慢 → 用镜像或让用户手动下载
+选 `llama-<ver>-bin-win-cuda-x64.zip`，**另需配套 `cudart-llama-bin-win-cuda-12.4-x64.zip`**；
+实际版本示例：`llama-b10665-bin-win-cuda-12.4-x64.zip`），解压后把 `llama-server.exe` 与同目录 CUDA DLL
+（cudart64*.dll、cublas*.dll）放入 `$TZ\llama\`
+
+直连与镜像 URL（把 `<ver>` 换成实际版本号）：
+
+```
+官方直连：https://github.com/ggerganov/llama.cpp/releases/download/<ver>/llama-<ver>-bin-win-cuda-12.4-x64.zip
+镜像加速：https://ghfast.top/https://github.com/ggerganov/llama.cpp/releases/download/<ver>/llama-<ver>-bin-win-cuda-12.4-x64.zip
+```
+
+【验证】`& "$TZ\llama\llama-server.exe" --version` 输出版本号
+【失败处理】无 N 卡驱动报错 → 先装 NVIDIA 驱动；GitHub 直连慢/失败 → URL 前加 `https://ghfast.top/` 前缀，或让用户手动下载后放入
 
 ## 第 3 步：翻译模型（实时层必需，不装则系统无法翻译）
 
-若 `<TZ>\models\Hy-MT2-1.8B-Q6_K.gguf` 已存在则跳过。否则：
+若 `$TZ\models\Hy-MT2-1.8B-Q6_K.gguf` 已存在则跳过。否则先建目录：
+
+```powershell
+New-Item -ItemType Directory -Force "$TZ\models" | Out-Null
+```
 
 【获取路径，按序尝试】
 1. HuggingFace 搜 `Hunyuan-MT GGUF`——腾讯混元翻译模型（官方仓库 `tencent/Hunyuan-MT-1.8B`
    为 safetensors；GGUF 用社区量化版），挑 1.8B 的 Q4_K_M 或 Q6_K（~1.2~1.5GB）
-2. HF 直连慢 → 同路径换 `hf-mirror.com` 前缀
+2. HF 直连慢 → 域名换成镜像，路径不变：
+   `https://huggingface.co/<仓库>/resolve/main/<文件名>` → `https://hf-mirror.com/<仓库>/resolve/main/<文件名>`
 3. 实在没有 GGUF → 下载官方 safetensors 后用 llama.cpp 的 `convert_hf_to_gguf.py` 转换（进阶）
 
-【命令】下载后重命名放入：`<TZ>\models\Hy-MT2-1.8B-Q6_K.gguf`
-【验证】文件存在且 > 1,000,000,000 字节
+【命令】下载后重命名放入：`$TZ\models\Hy-MT2-1.8B-Q6_K.gguf`
+【验证】`(Get-Item "$TZ\models\Hy-MT2-1.8B-Q6_K.gguf").Length -gt 1000000000` 输出 True
 【说明】文件名与下载所得不一致时，同步修改 `watcher_service.py` 顶部 `MODEL_18B`
 常量（或设环境变量 `TZ_MODEL_18B`），否则第 5 步模型起不来。
 
@@ -72,36 +102,35 @@ pip install zstandard
 
 - **用途**：仅服务「空闲挖矿校正层」——用户离开电脑时用 7B 免费提质存量译文
 - **不装的影响**：主功能（实时翻译 / 库命中 / DeepSeek 精修层）**完全不受影响**
-- 【命令】HuggingFace 搜 `Hunyuan-MT 7B GGUF`（Q4_K_M，~4.4GB）→ 放入
-  `<TZ>\models\Hy-MT2-7B-Q4_K_M.gguf`（文件名不同则改环境变量 `TZ_MODEL_7B`）
+- 【命令】HuggingFace 搜 `Hunyuan-MT 7B GGUF`（Q4_K_M，~4.4GB；直连慢用 `hf-mirror.com` 同路径）→ 放入
+  `$TZ\models\Hy-MT2-7B-Q4_K_M.gguf`（文件名不同则改环境变量 `TZ_MODEL_7B`）
 - 默认挖矿停用（`app\out\mining.off` 存在）；装好模型后想启用挖矿，删除该文件即可
 
 ## 第 4 步：导入种子库（强烈建议，跳过则空库起步）
 
 【命令】
+```powershell
+New-Item -ItemType Directory -Force "$TZ\app\cache" | Out-Null
+Copy-Item "$TZ\app\seed\tm-share.sqlite3" "$TZ\app\cache\tm.sqlite3" -Force
 ```
-mkdir "<TZ>\app\cache" 2>nul
-copy /y "<TZ>\app\seed\tm-share.sqlite3" "<TZ>\app\cache\tm.sqlite3"
-```
-【验证】`<TZ>\app\cache\tm.sqlite3` 存在且 ≈ 24 MB
-【说明】该库含 74,573 句已精修译文（已剔敏）。导入后新推理句子大量直接命中。
+【验证】`$TZ\app\cache\tm.sqlite3` 存在且 ≈ 25.4 MB
+【说明】该库含 75,353 句已精修译文（已剔敏）。导入后新推理句子大量直接命中。
 
 ## 第 5 步：启动观察器（常驻）
 
 【命令】先后台自检一次（前台 30 秒看日志）：
-```
-cd /d <TZ>\app
+```powershell
+Set-Location "$TZ\app"
 python -X utf8 -u watcher_service.py
 ```
 日志应依次出现：`[tm] 规范索引构建: N 条` → `[http] http://127.0.0.1:18765 ...`
-确认无异常后 Ctrl+C，改用生产模式：
+确认无异常后 Ctrl+C，改用生产模式（分离进程 + 隐藏窗口，随系统会话常驻）：
 
+```powershell
+Start-Process python -ArgumentList '-X','utf8','-u','watcher_service.py' -WorkingDirectory "$TZ\app" -WindowStyle Hidden
 ```
-start "" /min python -X utf8 -u watcher_service.py
-```
-（或 PowerShell：`Start-Process python -ArgumentList '-X','utf8','-u','watcher_service.py' -WindowStyle Hidden`，工作目录设为 app）
 
-【验证】`curl http://127.0.0.1:18765/api/stats` 返回 JSON，且 `model_up` 为 true（首次加载模型需 10~30 秒，可轮询等待）
+【验证】`(Invoke-RestMethod http://127.0.0.1:18765/api/stats).model_up` 为 `True`（首次加载模型需 10~30 秒，可轮询等待）
 【失败处理】
 - `model_up: false` → 检查第 2/3 步路径；显存不足则编辑 `watcher_service.py` 将 `-np 4` 改 `-np 2` 后重启
 - 端口冲突 → 改 `PORT`/`MPORT` 常量后重启（后续步骤同步改端口）
@@ -115,37 +144,54 @@ npm i dsh-think-translate
 编辑 DSH 桌面 profile 的 `package.json`，`dependencies` 加 `"dsh-think-translate": "^1.0.10"`。
 
 **关键配置补丁**（原版默认连 Ollama，必须改连观察器）：
+
+先定位 DSH 桌面 profile（`<DSH_profile>` 即含 `node_modules\` 的那一层 profile 目录），按序探测：
+
+```powershell
+if ($env:DSH_HOME) { $dp = Join-Path $env:DSH_HOME "profiles\desktop" }
+else { $dp = Join-Path $HOME ".dsh\profiles\desktop" }
+if (-not (Test-Path "$dp\node_modules")) {
+    # 判据落空 → 列出全部候选，挑 node_modules 下装有 dsh-think-translate 的那个
+    $root = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME ".dsh" }
+    Get-ChildItem (Join-Path $root "profiles") -Directory
+    # 逐个验证：Test-Path "<候选>\node_modules\dsh-think-translate" 为 True 的即 $dp
+}
+Test-Path "$dp\node_modules\dsh-think-translate"   # True = 定位成功
 ```
-copy /y "<TZ>\app\plugin-config\dsh-think-translate.config.json" ^
-    "<DSH_profile>\node_modules\dsh-think-translate\lib\config.json"
+
+> `<DSH_profile>` 没有写死的通用值：优先 `%DSH_HOME%\profiles\desktop`，兜底 `~\.dsh\profiles\desktop`，
+> 最终以 `profiles\desktop\node_modules` 真实存在为准（各机器安装位置不同）。
+
+```powershell
+Copy-Item "$TZ\app\plugin-config\dsh-think-translate.config.json" `
+    "$dp\node_modules\dsh-think-translate\lib\config.json" -Force
 ```
-其中 `<DSH_profile>` 形如 `~/.dsh/profiles/desktop`（以本机 DSH 实际 profile 路径为准）。
 然后重启 DSH 桌面端。
 
-【验证】`curl http://127.0.0.1:18765/api/stats` 中 `hits` 或 `misses` 在用户对话后开始增长
+【验证】`(Invoke-RestMethod http://127.0.0.1:18765/api/stats)` 的 `hits` 或 `misses` 在用户对话后开始增长
 
 ## 通用接入（非 DSH 工具用这个；无需第 6 步）
 
-观察器暴露 OpenAI 兼容端点，任何工具/智能体直接调用：
+观察器暴露 OpenAI 兼容端点，任何工具/智能体直接调用。**PowerShell 下不要用 curl 内联 JSON**
+（`\"` 转义在 PowerShell 必炸），用 `ConvertTo-Json` 构造请求体：
 
-```
-POST http://127.0.0.1:18765/v1/chat/completions
-{"model":"think-zh","messages":[{"role":"user","content":"Let me check the pipeline."}]}
+```powershell
+$body = @{ model = "think-zh"; messages = @(@{ role = "user"; content = "Let me check the pipeline." }) } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Uri "http://127.0.0.1:18765/v1/chat/completions" -Method Post -ContentType "application/json" -Body $body
 ```
 
-返回 JSON 的 `choices[0].message.content` 即中文译文。也可用 Python 直接查库
+返回 JSON 的 `choices[0].message.content` 即中文译文。（确需用 `curl.exe` 时，把 JSON 写入临时文件后
+`curl -X POST ... -d "@body.json"`，不要内联转义。）也可用 Python 直接查库
 （`app\tm_store.py`，SQLite 三张表：tm / canon / terms）。
 
 ## 最终验收（全部做完必做）
 
 【命令】
+```powershell
+$body = @{ model = "think-zh"; messages = @(@{ role = "user"; content = "Actually, wait. Let me reconsider the fallback path." }) } | ConvertTo-Json -Depth 5
+(Invoke-RestMethod -Uri "http://127.0.0.1:18765/v1/chat/completions" -Method Post -ContentType "application/json" -Body $body).choices[0].message.content
 ```
-curl -X POST http://127.0.0.1:18765/v1/chat/completions ^
-  -H "Content-Type: application/json" ^
-  -d "{\"model\":\"think-zh\",\"messages\":[{\"role\":\"user\",\"content\":\"Actually, wait. Let me reconsider the fallback path.\"}]}"
-```
-【判据】HTTP 200，`choices[0].message.content` 为中文（库命中应包含「回退」等词），
-`model` 字段为 `think-zh`。
+【判据】HTTP 200，输出为中文（库命中应包含「回退」等词）。
 【交付报告】向用户报告：环境探测结果、种子库条数、最终验收响应、观察页地址
 `http://127.0.0.1:18765/`。
 
@@ -208,10 +254,10 @@ curl -X POST http://127.0.0.1:18765/v1/chat/completions ^
 
 ## DeepSeek 精修层（可选，付费，默认不做）
 
-```
-cd /d <TZ>\app
+```powershell
+Set-Location "$TZ\app"
 python -X utf8 review.py --dry-run --all          # 零成本预览
-set DEEPSEEK_API_KEY=sk-xxx                        # 凭据只走环境变量
+$env:DEEPSEEK_API_KEY = "sk-xxx"                   # 凭据只走环境变量（当前会话有效）
 python -X utf8 review.py --all --yes --valley-only # 谷价自动防呆
 ```
 - 模型 deepseek-v4-flash，已内置关思考参数（省 13 倍费用）
@@ -234,3 +280,11 @@ python -X utf8 review.py --all --yes --valley-only # 谷价自动防呆
 | 观察页/API 端口 | 18765 | PORT |
 | 模型端口 | 8199（1.8B）/ 8198（7B） | MPORT / PRESETS |
 | 挖矿开关 | app\out\mining.off 文件存在=停 | 删除即启用 |
+
+## 许可证
+
+- 本项目代码与文档：**MIT**（见根目录 `LICENSE`）
+- llama.cpp 引擎：MIT（第三方公共品，第 2 步自行获取）
+- Tencent Hunyuan-MT 模型：许可见腾讯官方仓库（第 3 步自行获取）
+- NVIDIA CUDA 运行时 DLL：NVIDIA 最终用户许可（随引擎分发包提供）
+- 种子库 `tm-share.sqlite3`：随本项目分发，发布前已剔敏复扫

@@ -1,0 +1,74 @@
+# think-zh 交接文档（HANDOFF）
+
+> **给新会话**：原会话因一次 `read_image` 误用（glm-5.3-flash 纯文本模型不支持图片输入，图片已持久化进历史导致会话锁死）弃用。本文档承载全部关键上下文，读完即可无缝继续。
+> **交接时间**：2026-08-29 18:1x｜**原会话进度**：turn132，审计报告已产出，第 4 项修复已完成，观察页已验证。
+
+## 一、项目是什么
+
+**dsh-think-translate（think-zh）**：DSH 的思维链中译插件/服务。npm 包 `dsh-think-translate`（latest = 1.0.10，已核实 `^1.0.10` 有效）。核心：`watcher_service.py` 内嵌观察页 UI，服务监听 `127.0.0.1:18765`，打开 `http://127.0.0.1:18765` 即"think-zh 思维链中译"观察页（已实测 HTTP 200、实时日志流正常）。
+
+## 二、目录地图（两个工作副本的分工）
+
+| 路径 | 角色 |
+|---|---|
+| `D:\think-zh\` | **发布工作区**：`app\`（发布面，已精简）、`docs\`（截图与验证结论）、`llama\`、`models\`、`.git` |
+| `D:\think-zh\app\` | 发布面现状（**第 4 项已完成**）：仅剩 6 个必需文件 `watcher_service.py / core.py / tm_store.py / review.py / backfill.py / terms.json` + `plugin-config\`、`tools\`、`seed\` 目录 |
+| `E:\DSH011rc1\workspace\think-zh\` | **开发工作区**：源码副本、`方案设计.md`、`观察页-嵌入.html` |
+| `E:\DSH011rc1\workspace\think-zh\out\` | 产物与脚本：`probe_form.py`、`shot_observer.py`（截图脚本）、`survey_channels.py`（社区渠道调研）、`gh_*.py`（GitHub 发布脚本）、`sentences.jsonl`（语料）、`tm-share.sqlite3`（翻译记忆）、`对照报告.md` |
+| `E:\DSH011rc1\workspace\think-zh\out\dev-scripts\` | 从发布面移出的 **7 个开发残留留档**（acceptance_phase2 / extract_all / extract_sample / run_review_scheduled / translate_sample / upgrade_now / verify_quality） |
+| `D:\think-zh\docs\screenshot-observer.png` | 观察页截图（1800x1400，已拍好） |
+| `D:\think-zh\docs\screenshot-observer.ocr.md` | **截图 OCR 验证结论**（观察页正常，机翻痕迹清单） |
+
+## 三、审计报告（修复清单原文）
+
+### 🔴 必修（翻车级）
+
+1. **手册全是 cmd 语法**：第 5 步、精修层、第 4 步的 `cd /d`、`start "" /min`、`set XXX=`、`copy /y` 在 PowerShell 无效；`curl --data "{...}"` 内联转义在 PowerShell 必炸。需全面改 PowerShell 写法（`Set-Location` 等），并给 curl JSON 转义提供临时文件替代写法。
+2. **`<DSH_profile>` 幽灵路径**：需给探测判据——先 `%DSH_HOME%` → 兜底 `~/.dsh` → 找 `profiles\desktop\node_modules`（本机实际在 `E:\DSH011rc1\home\profiles\desktop`）。
+3. **README 数字与包内容不符**：74,573 句 → 实际 **75,353**；7.6 MB → **7.8 MB**；≈24 MB → **25.4 MB**。
+4. ~~开发残留脚本进发布包~~ → **已完成**：7 个残留移至 `workspace\think-zh\out\dev-scripts\`，发布面已精简。
+
+### 🟡 快修（5-9）
+
+| # | 问题 |
+|---|---|
+| 5 | 无 LICENSE 文件（README 声称 MIT） |
+| 6 | 零截图零演示 → **截图已拍好**（`docs\screenshot-observer.png`），待嵌入 README/发布物 |
+| 7 | 平台限制未声明（Windows + NVIDIA 硬前提） |
+| 8 | zip 解压后无 `llama\`、`models\` 目录说明（第 2/3 步缺 mkdir） |
+| 9 | llama.cpp 下载需给镜像 URL（HF 用 hf-mirror，GitHub 用 ghfast.top） |
+
+### 🟢 产品决策（10）
+
+10. **观察页要不要进包** → **已验证、建议保留进包**：页面随 watcher_service 内嵌即开即用，实时日志流工作正常，对调试翻译质量有直接价值；存在机翻痕迹（"剧作家"=Playwright、破折号误译成"一"），属质量问题非功能问题，可后续迭代。证据：`docs\screenshot-observer.ocr.md`。
+
+### 附加摩擦项（审计中一并列出）
+
+无"两行代码"快速上手示例、端口安全声明（仅监听 127.0.0.1）未写。
+
+## 四、待办顺序（建议）
+
+1. 第 1-3 项（README 语法/路径/数字）——纯文档修，工作量小收益大；
+2. 第 5-9 项快修；
+3. 第 10 项：把观察页与截图写进 README（"装完打开 http://127.0.0.1:18765 即是中文推理观察页"）；
+4. 重新打包前：数字三处复核、敏感扫描（`E:\DSH011rc1` 硬编码已随残留移出，复查一遍）、UTF-8 校验。
+
+## 五、本机环境红线（务必遵守）
+
+1. **禁止调用 `read_image`**：本会话模型 glm-5.3-flash 是纯文本模型，图片会锁死会话（原会话就是这么死的）。看图一律用本机 OCR：
+   ```
+   "E:\DSH011rc1\tools\ocr\python\python.exe" -X utf8 "E:\DSH011rc1\tools\ocr\tool\dsh_ocr.py" ocr "<图片绝对路径>" --json
+   ```
+2. **命令一律 PowerShell 语法**（`cd /d`、`start "" /min` 等/cmd 语法不可用）——这正是审计第 1 条要修的坑，自己别再踩。
+3. 模型旁如有 off/low 档位选择器：低要求任务选 off 省时省 token。
+
+## 六、2026-08-29 修复会话记录（待办已清）
+
+1. **第 1-3 项完成**：INSTALL.md 全部命令改 PowerShell（`$TZ` 变量约定、`Set-Location`/`Copy-Item`/`Start-Process`/`Invoke-RestMethod`，curl JSON 改 `ConvertTo-Json` 构造并注明临时文件替代写法）；`<DSH_profile>` 探测判据落进第 6 步（`%DSH_HOME%` → 兜底 `~\.dsh` → 以 `profiles\desktop\node_modules` 为准）；数字三处修正并实测（75,353 句 / 种子库 25.4 MB / 包 8.3 MB）。
+2. **第 5-9 项完成**：新增根目录 `LICENSE`（MIT）；README 新增「平台要求」节（Windows+NVIDIA 硬前提 + 仅监听 127.0.0.1）与「装完第一件事：打开观察页」节（嵌 `docs/screenshot-observer.png`）；第 2/3 步补 `New-Item -ItemType Directory`；第 2 步给 ghfast.top 镜像 URL、第 3 步给 hf-mirror.com 同路径写法。
+3. **额外发现并修复**：发布面 `app\tools\` 三脚本（scan_sensitive / watch_review / export_clean）残留 `E:\DSH011rc1`、`D:\think-zh` 硬编码路径，已全部改为随包相对定位（`__file__` 推导）。
+4. **用户新增要求**：发布面不提费用——README 与 COMMUNITY-POST 中 0.0004 元/条、~26 元、谷价、买断、扣费、零成本等表述全部中性化（INSTALL 的 DeepSeek 付费安全提示与踩坑实录保留，属防呆性质）。
+5. **重新打包完成**：`think-zh-portable.zip` 重打（Python zipfile、`/` 分隔、白名单 16 项：文档 4 + LICENSE + app 六必需 + plugin-config + tools 3 + seed 库 + `out\mining.off`），旧包残留 7 个开发脚本已不在包内；实测 8,289,240 字节 ≈ 8.3 MB。
+6. **校验全过**：种子库 75,353 条剔敏复扫零命中；发布面 13 个文本 UTF-8 无 BOM；zip CRC 全过；硬编码 grep 零残留。复核脚本留档 `workspace\think-zh\out\pre_release_check.py`、打包脚本 `repack.py`。
+7. **未做（待用户确认）**：git commit 与 GitHub push / release asset 更新（本轮只动本机，未触网）。
+8. **演示截图（第二张）完成**：`docs/screenshot-reasoning.png`（14 块满窗、全库命中、骨架保留），已嵌 README 并入包，包更新为 17 项 ≈ 8.5 MB。制作要点：观察页流只能来自会话文件监听（API 翻译不入流）；canon 规范化是**块级**的（多句拼块会改变占位符编号导致查库不中，须一句一块）；watcher 用 `DSH_SESSION_JSONL` 指向构造文件即回放（TailDecoder 多帧 zstd，事件格式 `{"type":"reasoning-chunks","data":{"texts":[...],"turn":<数字>}}`）；演示后已恢复 watcher 至真实会话监听并清理临时文件。注意：本会话智能体思考为中文，进英→中管线必然乱翻，演示素材必须取英文推理句（库内 review-% 精修句最佳）。

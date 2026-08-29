@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """分享前敏感扫描：库中的 protected 骨架是否真的不含密钥/凭据/敏感值。"""
-import sys, re
-sys.path.insert(0, r"E:\DSH011rc1\workspace\think-zh")
+import os, sys, re
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # app\ 根（tm_store.py 所在）
 import tm_store
 
 con = tm_store.conn()

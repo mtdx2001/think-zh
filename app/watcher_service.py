@@ -239,8 +239,29 @@ def watcher_loop():
     f = open(path, "rb")
     live["tail_ready"] = True
     print(f"[watcher] tailing {path} (replay from 0)")
+    # 会话切换自愈：SESSION 常量只在启动时定死，DSH 新开会话后本线程会盯着死文件静默停摆。
+    # 每 20 秒重探测最新会话文件，发现切换则转向新文件并从其尾部继续（不回放历史，不刷屏）。
+    # 显式指定 DSH_SESSION_JSONL 时视为调试/演示用法，不自动切换。
+    explicit = bool(os.environ.get("DSH_SESSION_JSONL"))
+    last_probe = time.time()
+    last_switch = 0.0
     while True:
         try:
+            if not explicit and time.time() - last_probe > 20 and time.time() - last_switch > 120:
+                last_probe = time.time()
+                newest = _newest_session()
+                if newest and newest != path and os.path.exists(newest):
+                    print(f"[watcher] 会话切换: ...\\{os.path.basename(os.path.dirname(path))} -> ...\\{os.path.basename(os.path.dirname(newest))}", flush=True)
+                    try: f.close()
+                    except Exception: pass
+                    path = newest
+                    with live["lock"]:
+                        live["session"] = newest
+                    f = open(path, "rb")
+                    off = f.seek(0, 2)   # 只翻新会话的后续内容
+                    dec = TailDecoder()
+                    caught_up = True
+                    last_switch = time.time()
             f.seek(off)
             data = f.read()
             if data:
