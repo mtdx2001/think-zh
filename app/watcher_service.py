@@ -188,9 +188,12 @@ def openai_translate(body):
     text = _extract_user_text((body or {}).get("messages"))
     content = ""
     if text:
-        protected, slots = protect(text)
-        sents = translate_sentences(protected, slots, allow_model=True, keep_skipped=True)
-        content = "\n".join((s["zh"] or s["orig"]) for s in sents)
+        if zh_ratio(text) >= 0.25:
+            content = text   # 中文块原样直通：不进英→中管线，不产生乱翻条目
+        else:
+            protected, slots = protect(text)
+            sents = translate_sentences(protected, slots, allow_model=True, keep_skipped=True)
+            content = "\n".join((s["zh"] or s["orig"]) for s in sents)
     return {"id": "think-zh", "object": "chat.completion", "model": "think-zh",
             "choices": [{"index": 0, "finish_reason": "stop",
                          "message": {"role": "assistant", "content": content}}]}
@@ -311,8 +314,25 @@ def idle_flusher():
         for key in [k for k, b in buffers.items() if now - b["ts"] > 4]:
             flush_key(key, True)
 
+def _passthrough(block, turn):
+    """中文块/纯符号块原样入展示流（zh=orig，不调模型、不入库、不产生垃圾条目）。"""
+    with live["lock"]:
+        live["seq"] += 1
+        live["blocks_seen"] += 1
+        live["blocks"].append({"seq": live["seq"], "ts": time.strftime("%H:%M:%S"),
+                               "turn": turn, "sentences": [{"orig": block, "zh": block, "hit": True}]})
+
 def publish_block(block, turn, allow_model=True):
+    # 闸 1：目标语已是中文的块（如中文思考的智能体）不进英→中管线，
+    # 原样入展示流——防乱翻入库污染（中文句式不属于本库语域，永远 miss 且译必乱）。
+    if zh_ratio(block) >= 0.25:
+        _passthrough(block, turn); return
     protected, slots = protect(block)
+    # 闸 2：剥掉占位符后几乎无实质英文词的纯符号块（代码行/路径/列表项），
+    # 送模型只会原样返回或误译（commit→提交），白耗算力还入库占位——原样入流。
+    rest = _TOK.sub("", protected)
+    if len(re.findall(r"[A-Za-z]{4,}", rest)) <= 1 and len(rest.strip()) < 40:
+        _passthrough(block, turn); return
     sents = translate_sentences(protected, slots, allow_model=allow_model)
     if not sents: return
     if not allow_model and not any(s["hit"] for s in sents):
