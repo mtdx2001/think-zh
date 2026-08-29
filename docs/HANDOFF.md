@@ -1,4 +1,4 @@
-# think-zh 交接文档（HANDOFF）
+﻿# think-zh 交接文档（HANDOFF）
 
 > **给新会话**：原会话因一次 `read_image` 误用（glm-5.3-flash 纯文本模型不支持图片输入，图片已持久化进历史导致会话锁死）弃用。本文档承载全部关键上下文，读完即可无缝继续。
 > **交接时间**：2026-08-29 18:1x｜**原会话进度**：turn132，审计报告已产出，第 4 项修复已完成，观察页已验证。
@@ -75,3 +75,5 @@
 9. **发布完成（2026-08-29 晚）**：commit `d3fd518`（20 文件，+293/-597）已 push 至 `github.com/mtdx2001/think-zh` main；Release v1.0.0 的 asset 已替换为新包 8,492,782 bytes（远端=本地校验一致），body 补充截图与 PowerShell 手册说明。**同轮修复 watcher 会话切换缺陷**：`watcher_loop` 每 20 秒重探测最新会话文件（显式 `DSH_SESSION_JSONL` 时不自动切换），切换后从新文件尾部继续、120 秒防抖；发布面与开发工作区副本已同步。**发布脚本坑位备忘**：本机全局 gitconfig 的 `url.ghfast.top.insteadOf` 重写会让一切 push 认证失败（ghfast 只加速下载不支持 push）——push 须用剔除该段的临时 GIT_CONFIG_GLOBAL（脚本 `out/make_push_config.py`）；`gh_update_asset.py` 上传 URL 参数不可含未编码空格（曾致旧 asset 已删新 asset 未传的中间态，去掉 label 参数后恢复）。
 10. **机翻坏句治理（2026-08-29 深夜，commit `10d5db7`）**：「剧作家」坏句 33 条全在本机 cache 库（本会话现翻产物，含中文思考混英文词的句；发布 seed 库零命中），已 REPLACE 为 "Playwright" 清零。`terms.json` 补 8 词（playwright/headless/smoke test/dry run/workaround/edge case/rollback/race condition），match_terms 为词边界正则、短语键可用；术语只注入现翻提示词，管不到已入库译文——库坏句须直接改库，命中即显示。1.8B 对个别术语遵循度有限（如 smoke test 未按词表翻），属模型能力边界。git 推送再次踩 ghfast 重写坑（第二次了），以后**凡 push 必套 `make_push_config.py` 临时配置**。
 11. **翻译闸门 + 积压治理（2026-08-29 深夜，commit `76bcfe3`，优化方针：更快/更好/更低占用）**：`publish_block` 双闸——中文块（`zh_ratio>=0.25`）与纯符号块（剥占位符后 4+ 字母词 ≤1 且剩余 <40 字符）原样直通入展示流，不调模型不入库；`openai_translate` 对插件 POST 的中文文本同样直通。清理 cache 积压垃圾 1,760 条（中文乱翻 + 符号块），`upgrade_pending` 2,095→**337**（全为真英文叙述句，7B 校正价值真实化）。经验：闸门验证一律写 python 脚本（`verify_gates.py`），PowerShell 内联含反引号/中文必炸（踩坑第三次，纪律已 pinned）；命中路径会返回历史坏译文（如旧符号句"提交"），清理后才闭环。
+
+12. **插件源码仓库单列发布（2026-08-29 深夜）**：npm 包 dsh-think-translate 的 repository 指向陌生账号 UncleK（凭据不在本机、无法修正），为归位生态入口，新建公开仓库 https://github.com/mtdx2001/dsh-think-translate （commit ddcb90a：lib/ 插件主体 + 9 语种 README + demo + docs + 补 MIT LICENSE + package.json 指向修正 + README 增加 think-zh 联动章节与源码主仓声明），topics 含 dsh-plugin；hub #20 已留言告知。发布前完成内容审查（文本敏感扫描 3 命中均为虚惊；demo gif 24 帧 OCR 审查——demo1 为发布 1.0.6 思考流翻译演示含 UncleK 公开 commit hash 与 npm 现状一致，demo2 为设置面板纯 UI，无凭据/路径/身份泄露）。工具：out/publish_plugin_repo.py、scan_tarball.py、extract_gif_frames.py、ocr_all_frames.py（注意批量 OCR 须用 tools\ocr 专用 python，字段名 items[].text）。
