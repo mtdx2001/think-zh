@@ -4,6 +4,16 @@
 > 全部步骤完成后执行「最终验收」，通过即安装完成，向用户报告。
 > 约定：`<TZ>` = 本包解压根目录（含 app\ llama\ models\ 的那一层），下文所有命令先 `cd /d <TZ>`。
 
+## 大件清单（先看清要下载什么，再动手）
+
+| 大件 | 大小 | 必须？ | 获取处 |
+|---|---|---|---|
+| llama.cpp 引擎（exe + CUDA DLL） | ~1.7 GB | ✅ 必须 | GitHub `ggerganov/llama.cpp` Releases（win-cuda 包）——第 2 步 |
+| 1.8B 翻译模型 GGUF | ~1.4 GB | ✅ 必须（实时层唯一模型） | HuggingFace `Hunyuan-MT GGUF`——第 3 步 |
+| 7B 校正模型 GGUF | ~4.4 GB | ⭕ 可选（仅空闲挖矿层，默认停用，不装不影响主功能） | HuggingFace `Hunyuan-MT 7B GGUF`——第 3b 步 |
+
+> 引擎与模型**不随包分发**（第三方公共品，许可见文末）。全部装完磁盘占用 ≈ **3.2 GB**（含 7B 则 ~7.6 GB）。
+
 ## 第 0 步：环境探测（先做，任何一条不过先解决再继续）
 
 【命令】逐条运行并记录：
@@ -18,6 +28,7 @@ netstat -ano | findstr ":18765 :8199"
 - Python ≥ 3.10
 - 存在 NVIDIA GPU 且空闲显存 ≥ 3000 MiB
 - 18765 与 8199 端口均未被占用
+- 目标盘剩余空间 ≥ 10 GB（大件见上方清单）
 
 【失败处理】
 - 显存不足 → 提醒用户关闭大显存程序，或后续第 6 步改用 `-np 2`
@@ -42,15 +53,28 @@ pip install zstandard
 【验证】`<TZ>\llama\llama-server.exe --version` 输出版本号
 【失败处理】无 N 卡驱动报错 → 先装 NVIDIA 驱动；下载慢 → 用镜像或让用户手动下载
 
-## 第 3 步：翻译模型
+## 第 3 步：翻译模型（实时层必需，不装则系统无法翻译）
 
 若 `<TZ>\models\Hy-MT2-1.8B-Q6_K.gguf` 已存在则跳过。否则：
 
-【命令】HuggingFace 搜索 `Hunyuan-MT-1.8B GGUF`（腾讯混元翻译模型，任意量化者均可，
-Q4_K_M 或 Q6_K），下载约 1.2~1.5GB 的 gguf 文件，重命名放入：
-`<TZ>\models\Hy-MT2-1.8B-Q6_K.gguf`
+【获取路径，按序尝试】
+1. HuggingFace 搜 `Hunyuan-MT GGUF`——腾讯混元翻译模型（官方仓库 `tencent/Hunyuan-MT-1.8B`
+   为 safetensors；GGUF 用社区量化版），挑 1.8B 的 Q4_K_M 或 Q6_K（~1.2~1.5GB）
+2. HF 直连慢 → 同路径换 `hf-mirror.com` 前缀
+3. 实在没有 GGUF → 下载官方 safetensors 后用 llama.cpp 的 `convert_hf_to_gguf.py` 转换（进阶）
+
+【命令】下载后重命名放入：`<TZ>\models\Hy-MT2-1.8B-Q6_K.gguf`
 【验证】文件存在且 > 1,000,000,000 字节
-【失败处理】HF 访问慢 → 用 hf-mirror.com 同路径下载
+【说明】文件名与下载所得不一致时，同步修改 `watcher_service.py` 顶部 `MODEL_18B`
+常量（或设环境变量 `TZ_MODEL_18B`），否则第 5 步模型起不来。
+
+## 第 3b 步：7B 校正模型（完全可选，可跳过）
+
+- **用途**：仅服务「空闲挖矿校正层」——用户离开电脑时用 7B 免费提质存量译文
+- **不装的影响**：主功能（实时翻译 / 库命中 / DeepSeek 精修层）**完全不受影响**
+- 【命令】HuggingFace 搜 `Hunyuan-MT 7B GGUF`（Q4_K_M，~4.4GB）→ 放入
+  `<TZ>\models\Hy-MT2-7B-Q4_K_M.gguf`（文件名不同则改环境变量 `TZ_MODEL_7B`）
+- 默认挖矿停用（`app\out\mining.off` 存在）；装好模型后想启用挖矿，删除该文件即可
 
 ## 第 4 步：导入种子库（强烈建议，跳过则空库起步）
 
