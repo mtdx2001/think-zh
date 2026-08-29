@@ -1,0 +1,17 @@
+# 隐私红线：正本库（未剔敏）与本地运行产物绝不入库
+app/cache/
+app/out/
+out/
+*.log
+*.sqlite3-wal
+*.sqlite3-shm
+
+# 大件第三方（按 INSTALL.md 自行获取）
+llama/
+models/
+tmp/
+
+# 系统杂项
+__pycache__/
+*.pyc
+Desktop.ini

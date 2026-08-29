@@ -1,0 +1,17 @@
+{
+  "priority": "openai",
+  "providers": {
+    "google": {
+      "enabled": true
+    },
+    "bing": {
+      "enabled": true
+    },
+    "openai": {
+      "enabled": true,
+      "baseURL": "http://127.0.0.1:18765/v1",
+      "model": "think-zh",
+      "apiKey": "local"
+    }
+  }
+}
