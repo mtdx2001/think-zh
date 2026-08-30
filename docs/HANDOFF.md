@@ -1,4 +1,4 @@
-﻿# think-zh 交接文档（HANDOFF）
+# think-zh 交接文档（HANDOFF）
 
 > **给新会话**：原会话因一次 `read_image` 误用（glm-5.3-flash 纯文本模型不支持图片输入，图片已持久化进历史导致会话锁死）弃用。本文档承载全部关键上下文，读完即可无缝继续。
 > **交接时间**：2026-08-29 18:1x｜**原会话进度**：turn132，审计报告已产出，第 4 项修复已完成，观察页已验证。
@@ -80,4 +80,4 @@
 
 13. **插件所有权更正事件（2026-08-30 凌晨，诚实记录）**：经查证 npm 包 dsh-think-translate 全部 11 个版本的发布者与唯一 maintainer 均为第三方账号 unclk（kolinfly@gmail.com，原仓库 UncleK/dsh-think-translate ≈ 同一人的变体拼写）——此前会话建立的『UncleK 是错误指向、插件属本机生态应归位』的假设错误，用户 npm 账号为 mtdx2001（网页授权登录验证），非包所有者。1.0.11 发布计划作废（无 publish 权）；本机 .npmrc 旧 token 系 unclk 环境遗留（已 E401 失效），已由用户本人网页授权替换为自己的有效 token。已执行修复：mtdx2001/dsh-think-translate 镜像仓库 README 加 Mirror notice 署名原作者、删除 canonical-source 错误声明、仓库归档（archived=True），hub #20 留言更正收录 attribution（请 hub 以原作者仓库为准）。教训：接手『仓库/包归位』类动作前先验证 npm maintainers/_npmUser 字段定所有权，勿凭 repository 字段与生态参与度推断。think-zh 主仓库（用户原创资产）叙事不变。
 
-14. **所有权定案 + 首帖发布（2026-08-30 凌晨）**：用户 npm 账号经网页授权登录验证为 mtdx2001（≠ unclk，插件所有权终案；.npmrc 已换为本人有效 token）。镜像仓库收尾三连：README 加 Mirror notice 署名原作者 + 删 canonical-source 错误声明 + 归档 archived=True；hub #20 已留言更正 attribution（comment-5465736828）。think-zh 仓库开启 Discussions 并发布作品主题（discussions/1，文案即 COMMUNITY-POST.md，发布前复核数字与隐私红线：75,353 句/8.5MB/17 项/22 条踩坑均准，无插件背书残留、无路径账号 IP）。剩唯一用户动作：linux.do 贴帖（浏览器 Cookie 在用户侧，agent 无凭据）。技术坑：GraphQL mutation 字符串闭合大括号数错（discussion{url}} 应为 }}}）；pwsh 内联 python -c 的 $ 变量被 PS 展开——复杂 GraphQL/正则一律走脚本文件。
+14. **所有权定案 + 首帖发布（2026-08-30 凌晨）**：用户 npm 账号经网页授权登录验证为 mtdx2001（≠ unclk，插件所有权终案；.npmrc 已换为本人有效 token）。镜像仓库收尾三连：README 加 Mirror notice 署名原作者 + 删 canonical-source 错误声明 + 归档 archived=True；hub #20 已留言更正 attribution（comment-5465736828）。think-zh 仓库开启 Discussions 并发布作品主题（discussions/1，文案即 COMMUNITY-POST.md，发布前复核数字与隐私红线：75,353 句/8.5MB/17 项/22 条踩坑均准，无插件背书残留、无路径账号 IP）。剩唯一用户动作：linux.do 贴帖（浏览器 Cookie 在用户侧，agent 无凭据）。〔后续修正：linux.do 渠道划掉——用户表示不熟悉该站、非其用户，系上游 agent 提议时未经验证带入的假设；社区帖阵地以本仓库 Discussions（discussions/1）为准，无待办用户动作。〕技术坑：GraphQL mutation 字符串闭合大括号数错（discussion{url}} 应为 }}}）；pwsh 内联 python -c 的 $ 变量被 PS 展开——复杂 GraphQL/正则一律走脚本文件。
