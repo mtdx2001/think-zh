@@ -145,6 +145,9 @@ npm i dsh-think-translate
 
 编辑 DSH 桌面 profile 的 `package.json`，`dependencies` 加 `"dsh-think-translate": "^1.0.10"`。
 
+> **版本锚点**：本步基于插件 **1.0.10** 验证。`^1.0.10` 自动接受 1.x 次版本更新；若插件发布
+> 2.x 大版本（config 结构或 provider 协议变更），按下方「版本漂移处理」回退。
+
 **关键配置补丁**（原版默认连 Ollama，必须改连观察器）：
 
 先定位 DSH 桌面 profile（`<DSH_profile>` 即含 `node_modules\` 的那一层 profile 目录），按序探测：
@@ -169,6 +172,18 @@ Copy-Item "$TZ\app\plugin-config\dsh-think-translate.config.json" `
     "$dp\node_modules\dsh-think-translate\lib\config.json" -Force
 ```
 然后重启 DSH 桌面端。
+
+**版本漂移处理**（插件大版本升级导致本步失效时）：
+
+1. **观察器端点契约永不变**：`POST http://127.0.0.1:18765/v1/chat/completions`、`model: "think-zh"`
+   是本项目的稳定接口（OpenAI 行业标准格式）。无论插件怎么改，任何支持自定义 OpenAI
+   provider 的显示层都能接回你的精修库——**接口由本项目定义，客户端来适配**。
+2. **回退已知良好配置**：本仓库 `app\plugin-config\dsh-think-translate.config.json` 永远是经
+   1.0.10 验证的配置锚点——新版插件 config 结构变化时，对照它手工迁移字段。
+3. **零插件兜底**：显示层完全装不上也不影响翻译资产——浏览器直开 `http://127.0.0.1:18765`
+   观察页（实时翻译流 + 统计），核心功能与插件无关。
+4. 插件 config 结构变化较大时，以其 npm 页官方 README 为准重新生成配置；欢迎提 issue
+   反馈，本手册跟进更新。
 
 【验证】`(Invoke-RestMethod http://127.0.0.1:18765/api/stats)` 的 `hits` 或 `misses` 在用户对话后开始增长
 
