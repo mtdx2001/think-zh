@@ -1,4 +1,4 @@
-# think-zh 交接文档（HANDOFF）
+﻿# think-zh 交接文档（HANDOFF）
 
 > **给新会话**：原会话因一次 `read_image` 误用（glm-5.3-flash 纯文本模型不支持图片输入，图片已持久化进历史导致会话锁死）弃用。本文档承载全部关键上下文，读完即可无缝继续。
 > **交接时间**：2026-08-29 18:1x｜**原会话进度**：turn132，审计报告已产出，第 4 项修复已完成，观察页已验证。
@@ -77,3 +77,5 @@
 11. **翻译闸门 + 积压治理（2026-08-29 深夜，commit `76bcfe3`，优化方针：更快/更好/更低占用）**：`publish_block` 双闸——中文块（`zh_ratio>=0.25`）与纯符号块（剥占位符后 4+ 字母词 ≤1 且剩余 <40 字符）原样直通入展示流，不调模型不入库；`openai_translate` 对插件 POST 的中文文本同样直通。清理 cache 积压垃圾 1,760 条（中文乱翻 + 符号块），`upgrade_pending` 2,095→**337**（全为真英文叙述句，7B 校正价值真实化）。经验：闸门验证一律写 python 脚本（`verify_gates.py`），PowerShell 内联含反引号/中文必炸（踩坑第三次，纪律已 pinned）；命中路径会返回历史坏译文（如旧符号句"提交"），清理后才闭环。
 
 12. **插件源码仓库单列发布（2026-08-29 深夜）**：npm 包 dsh-think-translate 的 repository 指向陌生账号 UncleK（凭据不在本机、无法修正），为归位生态入口，新建公开仓库 https://github.com/mtdx2001/dsh-think-translate （commit ddcb90a：lib/ 插件主体 + 9 语种 README + demo + docs + 补 MIT LICENSE + package.json 指向修正 + README 增加 think-zh 联动章节与源码主仓声明），topics 含 dsh-plugin；hub #20 已留言告知。发布前完成内容审查（文本敏感扫描 3 命中均为虚惊；demo gif 24 帧 OCR 审查——demo1 为发布 1.0.6 思考流翻译演示含 UncleK 公开 commit hash 与 npm 现状一致，demo2 为设置面板纯 UI，无凭据/路径/身份泄露）。工具：out/publish_plugin_repo.py、scan_tarball.py、extract_gif_frames.py、ocr_all_frames.py（注意批量 OCR 须用 tools\ocr 专用 python，字段名 items[].text）。
+
+13. **插件所有权更正事件（2026-08-30 凌晨，诚实记录）**：经查证 npm 包 dsh-think-translate 全部 11 个版本的发布者与唯一 maintainer 均为第三方账号 unclk（kolinfly@gmail.com，原仓库 UncleK/dsh-think-translate ≈ 同一人的变体拼写）——此前会话建立的『UncleK 是错误指向、插件属本机生态应归位』的假设错误，用户 npm 账号为 mtdx2001（网页授权登录验证），非包所有者。1.0.11 发布计划作废（无 publish 权）；本机 .npmrc 旧 token 系 unclk 环境遗留（已 E401 失效），已由用户本人网页授权替换为自己的有效 token。已执行修复：mtdx2001/dsh-think-translate 镜像仓库 README 加 Mirror notice 署名原作者、删除 canonical-source 错误声明、仓库归档（archived=True），hub #20 留言更正收录 attribution（请 hub 以原作者仓库为准）。教训：接手『仓库/包归位』类动作前先验证 npm maintainers/_npmUser 字段定所有权，勿凭 repository 字段与生态参与度推断。think-zh 主仓库（用户原创资产）叙事不变。
