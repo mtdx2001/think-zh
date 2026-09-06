@@ -15,3 +15,9 @@ tmp/
 __pycache__/
 *.pyc
 Desktop.ini
+
+# 本机运行时产物（防误提交）
+app/*.sqlite3
+app/cache/
+*.db
+*.sqlite3-journal
