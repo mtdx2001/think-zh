@@ -16,7 +16,7 @@
 
 ## 获取
 
-GitHub（含一键便携包 think-zh-portable.zip，8.3MB）：
+GitHub（含一键便携包 think-zh-portable.zip，8.5 MB，17 项）：
 **https://github.com/mtdx2001/think-zh**
 
 安装不用你动手——把仓库里的 INSTALL.md 丢给你的智能体，说"照这个装"。

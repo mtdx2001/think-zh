@@ -75,5 +75,11 @@ def stats():
     by_src = con.execute("SELECT source, COUNT(*) FROM tm GROUP BY source").fetchall()
     return {"total": total, "by_source": dict(by_src)}
 
+def bump_hit(key):
+    """命中计数落库（WAL 小事务，微秒级）。为"按命中精修/差译闭环"提供持久数据。"""
+    con = conn()
+    con.execute("UPDATE tm SET hits=hits+1 WHERE key=?", (key,))
+    con.commit()
+
 if __name__ == "__main__":
     print(stats())

@@ -25,8 +25,14 @@ MODEL_18B = os.environ.get("TZ_MODEL_18B", os.path.join(_BASE, "models", "Hy-MT2
 MPORT = 8199
 
 def _newest_session():
-    root = os.environ.get("DSH_HOME", os.path.expanduser("~/.dsh"))
-    fs = glob.glob(os.path.join(root, "sessions", "**", "session.jsonl.zstd"), recursive=True)
+    """多根扫描：DSH_HOME 为主根，DSH_SESSION_ROOTS（分号分隔）为扩展根；
+    全部候选中选 mtime 最新——本机多 DSH 版本共存时，哪个版本活跃就自动跟哪个。"""
+    roots = [os.environ.get("DSH_HOME", os.path.expanduser("~/.dsh"))]
+    extra = os.environ.get("DSH_SESSION_ROOTS", "")
+    roots += [p.strip() for p in extra.split(";") if p.strip()]
+    fs = []
+    for root in roots:
+        fs += glob.glob(os.path.join(root, "sessions", "**", "session.jsonl.zstd"), recursive=True)
     return max(fs, key=os.path.getmtime) if fs else None
 
 SESSION = os.environ.get("DSH_SESSION_JSONL") or _newest_session()
@@ -98,8 +104,8 @@ def ensure_model():
     if _mproc[0] is None:
         exe = os.path.join(LLAMA_DIR, "llama-server.exe")
         _mproc[0] = subprocess.Popen(
-            [exe, "-m", MODEL_18B, "-ngl", "99", "-c", "1024", "--port", str(MPORT),
-             "-np", "4", "--threads", "8", "-b", "2048", "-ub", "512", "--no-warmup", "--jinja"],
+            [exe, "-m", MODEL_18B, "-ngl", "99", "-c", "2048", "--port", str(MPORT),
+             "-np", "8", "--threads", "8", "-b", "2048", "-ub", "512", "--no-warmup", "--jinja"],
             cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     for _ in range(120):
         try:
@@ -129,8 +135,8 @@ def translate_sentences(protected_block, slots, allow_model=True, count=True, ke
     """块级保护文本 → 切句 → 每句查库/即席 → [{orig, zh, hit}]"""
     out = []
     for s in split_protected(protected_block):
-        if zh_ratio(s) > 0.5:
-            if keep_skipped:   # 中文过半：原文保留显示（不调模型）
+        if zh_ratio(s) > 0.3:
+            if keep_skipped:   # 中文占比 ≥30%：原文保留显示（不调模型）——混合句读原文，省 1.8B/7B 算力
                 o = _restore_sentence(s, slots)
                 out.append({"orig": o, "zh": o, "hit": "orig"})
             continue
@@ -141,7 +147,10 @@ def translate_sentences(protected_block, slots, allow_model=True, count=True, ke
         if hit:
             translation, mapping = row[1], json.loads(row[3] or "[]")
             zh = _restore_via_mapping(translation, order, mapping, slots)
-            if count: live["hits"] += 1
+            if count:
+                live["hits"] += 1
+                try: tm_store.bump_hit(ckey)   # 命中落库：hits 不再重启清零
+                except Exception: pass         # 计数失败不影响翻译返回
         elif allow_model:
             t = translate_realtime(canon)
             if t is None:
@@ -333,10 +342,10 @@ def publish_block(block, turn, allow_model=True):
     rest = _TOK.sub("", protected)
     if len(re.findall(r"[A-Za-z]{4,}", rest)) <= 1 and len(rest.strip()) < 40:
         _passthrough(block, turn); return
-    sents = translate_sentences(protected, slots, allow_model=allow_model)
+    sents = translate_sentences(protected, slots, allow_model=allow_model, keep_skipped=True)
     if not sents: return
-    if not allow_model and not any(s["hit"] for s in sents):
-        return  # 回放段：无库命中的块不入展示流
+    if not allow_model and not any(s["hit"] is True for s in sents):
+        return  # 回放段：无库命中（守卫跳过句 hit="orig" 不算命中）的块不入展示流
     with live["lock"]:
         live["seq"] += 1
         live["blocks_seen"] += 1
@@ -437,7 +446,7 @@ class Handler(BaseHTTPRequestHandler):
                 req = json.loads(self.rfile.read(n) or b"{}")
                 text = req.get("text", "")
                 protected, slots = protect(text)
-                return self._send(200, {"results": translate_sentences(protected, slots, allow_model=req.get("model", True))})
+                return self._send(200, {"results": translate_sentences(protected, slots, allow_model=req.get("model", True), keep_skipped=True)})
             return self._send(404, {"error": "not found"})
         except Exception as e:
             return self._send(500, {"error": str(e)[:200]})
