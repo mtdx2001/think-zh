@@ -263,11 +263,28 @@ $body = @{ model = "think-zh"; messages = @(@{ role = "user"; content = "Actuall
 
 | 症状 | 处理 |
 |---|---|
-| 中文有滞后感 | 确认 `-np 4` 生效；命中句 2ms，未命中 0.2~1s |
-| 显存不足 | `-np` 降 2；或换 Q4_K_M 量化模型 |
+| 中文有滞后感 | 确认 `-np 8` 生效（八路并发）；命中句 2ms，未命中 0.2~1s |
+| 显存不足 | `-np` 降 4 或 2；或换 Q4_K_M 量化模型 |
 | 命中率低 | 属正常，库随使用收敛；确认第 4 步种子库已导入 |
 | 观察页乱码 | 用浏览器访问，勿用 PowerShell 重定向读日志 |
 | 精修/进阶 | 见下两节 |
+
+## 真实场景排查（内测环境中真实发生过的四类坑）
+
+### A. DSH 启动失败：`duplicate loader entry id: X`
+装了多来源插件（功能全家桶合集 + 其中的单件）时高发——同一 UI 模块被声明两次，加载器拒载整个插件树。
+处理：打开 `<你的profile>\package.json`，检查 `dsh.profile.bundles`——若某个"全家桶合集"已包含某插件，**移除该插件的单件声明**（功能不受损失，合集已供给）。改 JSON 用 Python `json.dump` 写回（见 B 条 BOM 坑）。改前备份原件。
+
+### B. 配置文件改完就崩：`SyntaxError: Unexpected token ''`
+Windows PowerShell 5.1 的 `Set-Content -Encoding UTF8` 在文件头写 BOM，Node 的 `JSON.parse` 拒收带 BOM 的 JSON。
+处理：改 JSON 一律用 Python（`json.dump` 默认无 BOM）；已坏的文件用 `encoding='utf-8-sig'` 读入、无 BOM 写回即可救。
+
+### C. 改了参数但不生效（模型参数"失忆"）
+观察器对 8199 端口上存活的模型进程直接复用、不校验启动参数——**旧参数的孤儿进程会让此后所有参数修改静默失效**（内测环境单路串行跑了九天才发现）。
+本版已修复：观察器启动时自动清理占 8199 的外部/旧参数 llama-server 并按当前代码参数重拉（日志标记 `[model] 收养检查`）。手动处理：任务管理器结束 `llama-server.exe`，重启观察器。
+
+### D. 控制台黑窗常驻/刷屏
+用 `start_watcher.cmd` 启动（pythonw 无窗运行，日志写 `app\watcher.log`，可配合计划任务做掉线自愈）。解码器 `帧失步重同步` 为正常噪音（已限流），翻译功能无碍。
 
 ## DeepSeek 精修层（可选，付费，默认不做）
 

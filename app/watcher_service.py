@@ -95,6 +95,31 @@ def tm_put_canonical(canon, translation, model, source):
 
 # ---------------- 常驻 1.8B ----------------
 _mproc = [None]
+
+def _adopt_orphans():
+    """启动时收养检查：8199 上有响应但非本进程所拉 → 孤儿/旧参数进程。
+    health 复用只看存活不看参数，会让参数修改永久失效（跨九天的真实事故）。
+    故启动时清掉占 MPORT 的外部 llama-server，确保按当前代码参数重拉。"""
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{MPORT}/health", timeout=1)
+    except Exception:
+        return   # 端口干净，无需收养
+    ps = subprocess.run(
+        ["powershell", "-NoProfile", "-Command",
+         "Get-CimInstance Win32_Process -Filter \"Name='llama-server.exe'\" | "
+         f"Where-Object {{ $_.CommandLine -match '--port {MPORT}' }} | "
+         "Select-Object -ExpandProperty ProcessId"],
+        capture_output=True, text=True, timeout=20)
+    killed = 0
+    for line in ps.stdout.split():
+        pid = line.strip()
+        if pid.isdigit():
+            subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True)
+            killed += 1
+    if killed:
+        print(f"[model] 收养检查：清掉 {killed} 个外部/旧参数 llama-server，稍后按当前参数重拉", flush=True)
+        time.sleep(2)
+
 def ensure_model():
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{MPORT}/health", timeout=2) as r:
@@ -214,6 +239,7 @@ class TailDecoder:
     def __init__(self):
         self.d = zstd.ZstdDecompressor().decompressobj()
         self.buf = b""
+        self.resyncs = 0   # 连续失步计数（降噪：正常逐帧重同步不刷屏）
     def feed(self, data):
         self.buf += data
         out = []
@@ -226,10 +252,13 @@ class TailDecoder:
                 if i < 0:
                     self.buf = self.buf[-3:]   # 魔数可能跨读边界，留尾3字节
                     break
-                print("[decoder] 帧失步，重同步 @" + str(i), flush=True)
+                self.resyncs += 1
+                if self.resyncs == 1 or self.resyncs % 100 == 0:
+                    print(f"[decoder] 帧失步重同步 x{self.resyncs} @{i}", flush=True)
                 self.buf = self.buf[i:]
                 self.d = zstd.ZstdDecompressor().decompressobj()
                 continue
+            self.resyncs = 0
             out.append(piece)
             if rest:
                 self.buf = rest
@@ -546,5 +575,6 @@ if __name__ == "__main__":
     threading.Thread(target=idle_flusher, daemon=True).start()
     threading.Thread(target=ensure_model, daemon=True).start()
     threading.Thread(target=idle_upgrade_loop, daemon=True).start()
+    _adopt_orphans()   # 启动先清外部/旧参数模型进程，保证参数一致（孤儿事故根治）
     print(f"[http] http://127.0.0.1:{PORT}  (观察页 / · API /api/lookup /api/translate /api/stats)")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
