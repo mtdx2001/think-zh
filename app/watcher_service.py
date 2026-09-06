@@ -95,6 +95,8 @@ def tm_put_canonical(canon, translation, model, source):
 
 # ---------------- 常驻 1.8B ----------------
 _mproc = [None]
+_mproc_start = [0.0]
+_model_lock = threading.Lock()
 
 def _adopt_orphans():
     """启动时收养检查：8199 上有响应但非本进程所拉 → 孤儿/旧参数进程。
@@ -121,17 +123,36 @@ def _adopt_orphans():
         time.sleep(2)
 
 def ensure_model():
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{MPORT}/health", timeout=2) as r:
-            if r.status == 200:
-                live["model_up"] = True; return True
-    except Exception: pass
-    if _mproc[0] is None:
+    """模型可用性保障：健康即用；端口不通则无条件重生（修复进程死亡后
+    _mproc 残留旧对象导致永不重拉的 bug——外部实测塌两小时无人发现）。
+    并发安全：模型锁串行化；90 秒宽限期内不杀刚拉起的进程（加载中）。"""
+    with _model_lock:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{MPORT}/health", timeout=2) as r:
+                if r.status == 200:
+                    live["model_up"] = True; return True
+        except Exception: pass
+        live["model_up"] = False   # 探活失败立即落真实状态，观察页不说谎
+        if _mproc[0] is not None:
+            try:
+                if _mproc[0].poll() is None:
+                    if time.time() - _mproc_start[0] < 90:
+                        return False   # 刚拉起仍在加载，勿杀勿重拉
+                    _mproc[0].kill()
+                    print("[model] 模型进程失联，终止并重拉", flush=True)
+            except Exception: pass
+            _mproc[0] = None
         exe = os.path.join(LLAMA_DIR, "llama-server.exe")
-        _mproc[0] = subprocess.Popen(
-            [exe, "-m", MODEL_18B, "-ngl", "99", "-c", "2048", "--port", str(MPORT),
-             "-np", "8", "--threads", "8", "-b", "2048", "-ub", "512", "--no-warmup", "--jinja"],
-            cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        try:
+            _mproc[0] = subprocess.Popen(
+                [exe, "-m", MODEL_18B, "-ngl", "99", "-c", "2048", "--port", str(MPORT),
+                 "-np", "8", "--threads", "8", "-b", "2048", "-ub", "512", "--no-warmup", "--jinja"],
+                cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            _mproc_start[0] = time.time()
+            print("[model] 已按当前参数重拉 llama-server（np=8）", flush=True)
+        except Exception as e:
+            print(f"[model] 重拉失败: {str(e)[:150]}", flush=True)
+            return False
     for _ in range(120):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{MPORT}/health", timeout=2) as r:
@@ -139,6 +160,17 @@ def ensure_model():
                     live["model_up"] = True; return True
         except Exception: time.sleep(1)
     live["model_up"] = False; return False
+
+def model_guard_loop():
+    """周期模型探活（60s）：llama-server 中途死亡自动重生。
+    与外部守护任务（进程级）形成双层保险：守护管 watcher 进程，本线程管模型进程。"""
+    while True:
+        time.sleep(60)
+        try:
+            if not ensure_model():
+                print("[model] 周期探活失败（若连续出现请查显存与模型路径）", flush=True)
+        except Exception as e:
+            print(f"[model] 探活异常: {str(e)[:150]}", flush=True)   # 不静默：失败必须留痕
 
 def translate_realtime(protected):
     _touch_activity()
@@ -239,7 +271,7 @@ class TailDecoder:
     def __init__(self):
         self.d = zstd.ZstdDecompressor().decompressobj()
         self.buf = b""
-        self.resyncs = 0   # 连续失步计数（降噪：正常逐帧重同步不刷屏）
+        self.last_resync_log = 0.0   # 时间节流（连续计数会被逐帧成功清零，节流失效的教训）
     def feed(self, data):
         self.buf += data
         out = []
@@ -252,13 +284,12 @@ class TailDecoder:
                 if i < 0:
                     self.buf = self.buf[-3:]   # 魔数可能跨读边界，留尾3字节
                     break
-                self.resyncs += 1
-                if self.resyncs == 1 or self.resyncs % 100 == 0:
-                    print(f"[decoder] 帧失步重同步 x{self.resyncs} @{i}", flush=True)
+                if time.time() - self.last_resync_log > 30:
+                    print("[decoder] 帧失步重同步（30s 节流，持续属正常追新）", flush=True)
+                    self.last_resync_log = time.time()
                 self.buf = self.buf[i:]
                 self.d = zstd.ZstdDecompressor().decompressobj()
                 continue
-            self.resyncs = 0
             out.append(piece)
             if rest:
                 self.buf = rest
@@ -575,6 +606,7 @@ if __name__ == "__main__":
     threading.Thread(target=idle_flusher, daemon=True).start()
     threading.Thread(target=ensure_model, daemon=True).start()
     threading.Thread(target=idle_upgrade_loop, daemon=True).start()
+    threading.Thread(target=model_guard_loop, daemon=True).start()
     _adopt_orphans()   # 启动先清外部/旧参数模型进程，保证参数一致（孤儿事故根治）
     print(f"[http] http://127.0.0.1:{PORT}  (观察页 / · API /api/lookup /api/translate /api/stats)")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
