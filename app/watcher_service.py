@@ -147,7 +147,8 @@ def ensure_model():
             _mproc[0] = subprocess.Popen(
                 [exe, "-m", MODEL_18B, "-ngl", "99", "-c", "2048", "--port", str(MPORT),
                  "-np", "8", "--threads", "8", "-b", "2048", "-ub", "512", "--no-warmup", "--jinja"],
-                cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                creationflags=0x08000000)   # CREATE_NO_WINDOW：llama 是 console 程序，从 GUI 父进程启动会自建可见终端
             _mproc_start[0] = time.time()
             print("[model] 已按当前参数重拉 llama-server（np=8）", flush=True)
         except Exception as e:

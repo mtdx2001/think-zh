@@ -48,7 +48,8 @@ def start_server(cfg):
         [exe, "-m", cfg["model"], "-ngl", "99", "-c", str(cfg.get("ctx", 8192)), "--port", str(cfg["port"]),
          "-np", str(cfg["np"]), "--threads", str(cfg["threads"]),
          "-b", "2048", "-ub", "512", "--no-warmup", "--jinja"],
-        cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        cwd=LLAMA_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+        creationflags=0x08000000)   # CREATE_NO_WINDOW：7B 校正进程同样不得开可见终端
     for _ in range(180):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{cfg['port']}/health", timeout=2) as r:
