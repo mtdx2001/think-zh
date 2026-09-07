@@ -124,15 +124,16 @@ Set-Location "$TZ\app"
 python -X utf8 -u watcher_service.py
 ```
 日志应依次出现：`[tm] 规范索引构建: N 条` → `[http] http://127.0.0.1:18765 ...`
-确认无异常后 Ctrl+C，改用生产模式（分离进程 + 隐藏窗口，随系统会话常驻）：
+确认无异常后 Ctrl+C，改用包内生产脚本（pythonw 无窗启动，cmd 壳闪退，日志落 `app\watcher.log`）：
 
 ```powershell
-Start-Process python -ArgumentList '-X','utf8','-u','watcher_service.py' -WorkingDirectory "$TZ\app" -WindowStyle Hidden
+& "$TZ\app\start_watcher.cmd"
 ```
 
 【验证】`(Invoke-RestMethod http://127.0.0.1:18765/api/stats).model_up` 为 `True`（首次加载模型需 10~30 秒，可轮询等待）
+【耗时预期】因显卡而异：RTX 4070 级实时约 50~150ms/句，老卡或核显可能 0.5~1s；命中句恒定 2ms（不走模型）
 【失败处理】
-- `model_up: false` → 检查第 2/3 步路径；显存不足则编辑 `watcher_service.py` 将 `-np 4` 改 `-np 2` 后重启
+- `model_up: false` → 检查第 2/3 步路径；显存不足则编辑 `watcher_service.py` 将 `-np 8` 改 `-np 4` 或 `-np 2` 后重启（收养检查会自动按新参数重拉，无需手动杀进程）
 - 端口冲突 → 改 `PORT`/`MPORT` 常量后重启（后续步骤同步改端口）
 
 ## 第 6 步：显示层插件（仅 DSH 用户需要；其他工具跳到「通用接入」）
