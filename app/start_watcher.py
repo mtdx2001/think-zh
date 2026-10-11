@@ -14,7 +14,10 @@
 
 用法：pythonw.exe start_watcher.py   （python 亦可，仅多一个窗口）
 """
+import glob
+import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -22,8 +25,40 @@ import sys
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(APP_DIR, "watcher.log")
 PORT = 18765
-PYTHONW = r"C:\Python314\pythonw.exe"
 SCRIPT = os.path.join(APP_DIR, "watcher_service.py")
+
+
+def find_pythonw():
+    """定位 pythonw.exe：优先已配置值 → PATH → 常见安装位置。
+
+    不写死解释器绝对路径：本仓库是公开的，写死会把本机环境暴露出去，
+    且用户可能装在别的版本目录或用 conda 环境。
+    若 local_config.json 里有 pythonw 字段则优先采用（本机可显式指定）。
+    """
+    import shutil
+    cfg = load_local_config()
+    if cfg.get("pythonw") and os.path.isfile(cfg["pythonw"]):
+        return cfg["pythonw"]
+
+    found = shutil.which("pythonw")
+    if found:
+        return found
+
+    exe_dir = os.path.dirname(sys.executable)
+    for name in ("pythonw.exe", "python.exe"):
+        cand = os.path.join(exe_dir, name)
+        if os.path.isfile(cand):
+            return cand
+
+    for pat in (
+        r"C:\Python3*\pythonw.exe",
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Programs\Python\Python3*\pythonw.exe"),
+        os.path.join(os.environ.get("USERPROFILE", ""), r"AppData\Local\Programs\Python\Python3*\pythonw.exe"),
+    ):
+        hits = sorted(glob.glob(pat))
+        if hits:
+            return hits[-1]
+    return None
 
 
 def port_listening(port, host="127.0.0.1", timeout=1.0):
@@ -37,27 +72,52 @@ def port_listening(port, host="127.0.0.1", timeout=1.0):
         return s.connect_ex((host, port)) == 0
 
 
+def load_local_config():
+    """读取本机专属配置 `local_config.json`（**不入库**，见 .gitignore）。
+
+    这样拆分的理由：本仓库是公开的，而 DSH_HOME / 会话根目录属本机私有
+    环境信息（含用户名与私有目录名），不该出现在公开代码里。
+    没有该文件时（社区用户/新机器）返回空字典，行为与不配置一致。
+    """
+    path = os.path.join(APP_DIR, "local_config.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f"[start_watcher] local_config.json 解析失败，已忽略: {e}")
+        return {}
+
+
 def main():
     if port_listening(PORT):
         print(f"[start_watcher] {PORT} 已在监听，跳过重复启动")
         return 0
 
     env = os.environ.copy()
-    env["DSH_HOME"] = env.get("DSH_HOME") or r"E:\DSH011rc1\home"
+    cfg = load_local_config()
 
-    # 环境变量在此显式补齐：从自启快捷方式拉起时可能没有父 shell 的 set 结果
-    roots = [
-        r"E:\deepseek\创造区\.rc8-lab-home",
-        r"E:\deepseek\创造区\.wallpaper-layer-acceptance\home-coexist",
-        r"C:\Users\Administrator\AppData\Roaming\deepseek-harness-desktop\harness-home",
-    ]
-    env["DSH_SESSION_ROOTS"] = env.get("DSH_SESSION_ROOTS") or ";".join(roots)
+    # 环境变量在此补齐：从自启快捷方式拉起时可能没有父 shell 的 set 结果。
+    # 优先级：已有环境变量 > local_config.json > 不设置（交给 watcher_service 自行探测）
+    if not env.get("DSH_HOME") and cfg.get("dsh_home"):
+        env["DSH_HOME"] = cfg["dsh_home"]
+    if not env.get("DSH_SESSION_ROOTS") and cfg.get("dsh_session_roots"):
+        roots = cfg["dsh_session_roots"]
+        env["DSH_SESSION_ROOTS"] = ";".join(roots) if isinstance(roots, list) else str(roots)
 
     # 由本进程持有日志句柄并传给子进程：这是不阻塞的关键
+    exe = find_pythonw()
+    if not exe:
+        print("[start_watcher] 未找到 pythonw.exe，请确认 Python 已安装并加入 PATH"
+              "（或在 local_config.json 里指定 pythonw）")
+        return 1
+
     logf = open(LOG, "a", encoding="utf-8", errors="replace")
     try:
         subprocess.Popen(
-            [PYTHONW, "-X", "utf8", "-u", SCRIPT],
+            [exe, "-X", "utf8", "-u", SCRIPT],
             cwd=APP_DIR,
             env=env,
             stdout=logf,
@@ -69,7 +129,7 @@ def main():
     finally:
         logf.close()   # 子进程已持有自己的副本，父侧可安全关闭
 
-    print(f"[start_watcher] 已拉起 watcher_service.py（端口 {PORT}）")
+    print(f"[start_watcher] 已拉起 watcher_service.py（端口 {PORT}，解释器 {exe}）")
     return 0
 
 

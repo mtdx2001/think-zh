@@ -21,3 +21,6 @@ app/*.sqlite3
 app/cache/
 *.db
 *.sqlite3-journal
+
+# 本机专属配置（含私有路径/用户名，绝不入库；社区用户不需要此文件）
+app/local_config.json

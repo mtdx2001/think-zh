@@ -350,11 +350,18 @@ def watcher_loop():
             print("[watcher] err:", str(e)[:100]); time.sleep(2)
 
 def handle_line(line, allow_model=True):
-    if "reasoning" not in line: return
+    # 2026-10-11 修复（思考流「看不见」的根因）：
+    # 上游 DSH 把思考流事件由 `reasoning-chunks` 更名为 `text-chunks`（字段结构不变：
+    # data.turn/step/index/dt/texts 完全一致）。旧代码有两道拦截会把它整个漏掉：
+    #   1) 本行的前置过滤只放行含 "reasoning" 字样的行——`text-chunks` 不含该字样，被直接丢弃；
+    #   2) 下面的类型判断只认 "reasoning-chunks"。
+    # 后果：观察器看不到思考内容，只剩旧格式的空事件，表现为「翻译不出来 / 严重滞后」。
+    if "reasoning" not in line and "text-chunks" not in line: return
     try: o = json.loads(line)
     except: return
     t = o.get("type")
-    if t == "reasoning-chunks":
+    # 兼容两种事件名：text-chunks（新） / reasoning-chunks（旧）
+    if t in ("reasoning-chunks", "text-chunks"):
         d = o.get("data", {})
         block = "".join(d.get("texts", []))
         if block.strip(): publish_block(block, d.get("turn"), allow_model)
@@ -368,9 +375,19 @@ def handle_line(line, allow_model=True):
         b = buffers.setdefault(key, {"text": "", "ts": time.time()})
         b["text"] += (c.get("text") or c.get("delta") or "")
         b["ts"] = time.time()
-    elif ct == "block-end" and c.get("blockType") == "reasoning":
+    elif ct == "block-end":
+        # 2026-10-11 修复（滞后根因）：原判据为 c.get("blockType") == "reasoning"，
+        # 但上游 DSH 的 block-end 事件 blockType 字段已是 None（实测：当前与历史
+        # 全部会话共 384+335+… 个 block-end，blockType 无一为 "reasoning"），
+        # 该条件永不成立 ⇒ reasoning-delta 累积的块从不被 flush，
+        # 只能等 idle_flusher 的 4 秒无更新兜底 ⇒ 表现为「整段出来后才翻译」。
+        #
+        # 正解：不依赖 blockType，改用「该 key 是否有累积内容」判定——
+        # 有累积说明前面确实来过 reasoning-delta，这就是 reasoning 块的结束。
+        # 同时兼容 blockType 仍为 "reasoning" 的旧格式。
         key = (d2.get("turn"), d2.get("step"), c.get("index"))
-        flush_key(key, allow_model)
+        if c.get("blockType") == "reasoning" or key in buffers:
+            flush_key(key, allow_model)
 
 def flush_key(key, allow_model=True):
     b = buffers.pop(key, None)

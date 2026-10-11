@@ -308,6 +308,8 @@ $body = @{ model = "think-zh"; messages = @(@{ role = "user"; content = "Actuall
 | 13 | 1.8B 常驻 + 7B 校正同时起 | 显存 OOM | 7B 校正专用小配置（np=1, ctx=2048），且挖矿有活动让路机制 |
 | 14 | 多进程写库锁死 | watcher 与精修同时写 SQLite | WAL 模式 + `timeout=15`；只读巡检用 `mode=ro` URI |
 | 15 | 库的 created 字段是建库日 | 按日统计全堆在同一天 | 铺量写入不携带句子真实时间，别拿它做时间序列 |
+| 21 | **上游事件改名致思考流全盲** | 突然不翻译/严重滞后，`model_up=True` 却不出内容，易误判为 GPU 故障 | 同时接受 `text-chunks`（新）与 `reasoning-chunks`（旧）；详见「真实场景排查 E」 |
+| 22 | **`block-end` 的 `blockType` 恒为 None** | 逐句流从不 flush，只能靠 4 秒兜底 → 「整段出来才翻译」 | flush 判据改用「该块是否有累积内容」，不依赖 blockType |
 
 ### DeepSeek 付费坑（每条都是真金白银）
 
@@ -344,7 +346,60 @@ Windows PowerShell 5.1 的 `Set-Content -Encoding UTF8` 在文件头写 BOM，No
 本版已修复：观察器启动时自动清理占 8199 的外部/旧参数 llama-server 并按当前代码参数重拉（日志标记 `[model] 收养检查`）。手动处理：任务管理器结束 `llama-server.exe`，重启观察器。
 
 ### D. 控制台黑窗常驻/刷屏
-用 `start_watcher.cmd` 启动（pythonw 无窗运行，日志写 `app\watcher.log`，可配合计划任务做掉线自愈）。解码器 `帧失步重同步` 为正常噪音（已限流），翻译功能无碍。
+用 `start_watcher.cmd` 启动（pythonw 无窗运行，日志写 `app\watcher.log`，可配合计划任务做掉线自愈）。解码器 `帧失步重同步` 为正常噪音（已限流）。
+
+### E. **思考流「不翻译了」/ 严重滞后：DSH 事件类型改名（2026-10-11 实测，影响面最大的一条）**
+
+**症状**：思考翻译突然不工作或严重滞后——新思考要等整段输出完才翻译，甚至完全看不到中文。
+观察页 `blocks_seen` 停在极小的数字几乎不涨；`/api/stats` 的 `model_up` 却是 `True`（服务与 GPU 都正常）。
+
+**误判方向（务必避开）**：极易被当成 GPU 故障或显存不足去折腾显卡——**实际与 GPU 毫无关系**。
+
+**真因**：上游 DSH 把思考流事件由 `reasoning-chunks` **更名为 `text-chunks`**
+（`data.turn / step / index / dt / texts` 字段结构完全不变，只是事件名变了）。
+观察器旧代码有两道拦截会把它整个漏掉：
+1. `handle_line` 首行过滤 `if "reasoning" not in line: return`——`text-chunks` 不含该字样，被直接丢弃；
+2. 类型判断只认 `reasoning-chunks`。
+
+结果：观察器只看到新格式下的**空事件**，思考内容一条都进不来。
+
+**自检命令**（判断是否命中本条）：
+```powershell
+# 统计当前最活跃会话里两类事件各有多少：新格式仅有 text-chunks 有内容
+python -X utf8 -c "
+import zstandard as zstd, json, io, glob, os
+f = max(glob.glob(os.path.expanduser('~/.dsh/sessions/**/session.jsonl.zstd'), recursive=True), key=os.path.getmtime)
+with zstd.ZstdDecompressor().stream_reader(io.BytesIO(open(f,'rb').read()), read_across_frames=True) as r:
+    txt = r.read().decode('utf-8','replace')
+tc = sum(1 for l in txt.split(chr(10)) if 'text-chunks' in l and json.loads(l).get('data',{}).get('texts'))
+rc = sum(1 for l in txt.split(chr(10)) if 'reasoning-chunks' in l and json.loads(l).get('data',{}).get('texts'))
+print('text-chunks(新，有内容):', tc, ' reasoning-chunks(旧，有内容):', rc)
+"
+```
+`text-chunks` 明显大于 0、而 `reasoning-chunks` 为 0 ⇒ 命中本条。
+
+**修复**：`watcher_service.py` 的 `handle_line` 已同时接受两种事件名，并放宽首行过滤。
+若你的版本早于 2026-10-11，请更新到含该修复的版本，或手工把
+`if "reasoning" not in line: return` 改为 `if "reasoning" not in line and "text-chunks" not in line: return`，
+并把 `if t == "reasoning-chunks":` 改为 `if t in ("reasoning-chunks", "text-chunks"):`。
+
+**同批修复的第二个坑（`block-end` 不再 flush）**：思考的**逐句**流另一条路径是
+`assistant/chunk` 的 `reasoning-delta` + `block-end`，旧代码要求
+`block-end` 事件带 `blockType == "reasoning"` 才 flush——但实测该字段恒为 `None`
+（当前与历史全部会话，数千个 block-end 无一例外），条件永不成立，
+导致只能靠 `idle_flusher` 的 4 秒无更新兜底，表现为「整段出来才翻译」。
+已改为按「该块是否有累积内容」判定，并兼容旧字段。
+
+**修复后实测**（同一会话，同一台机器）：
+```
+修复前：blocks_seen = 1（且长期不变）      text-chunks 非空事件被捕获 = 0
+修复后：blocks_seen = 516                  text-chunks 非空事件被捕获 = 558
+实时性：会话事件 09:55:00 → 展示流时间戳 09:55:01（延迟约 1 秒）
+```
+
+**教训**：这类「上游格式变更型」故障，症状会伪装成硬件问题。
+**判断服务是否健康要看 `/api/stats` 的 `model_up` + 端到端 POST 实测**，
+两者都正常而页面不出内容时，**先怀疑事件格式，不要先怀疑显卡**。
 
 ## DeepSeek 精修层（可选，付费，默认不做）
 
