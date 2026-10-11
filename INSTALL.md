@@ -136,6 +136,65 @@ python -X utf8 -u watcher_service.py
 - `model_up: false` → 检查第 2/3 步路径；显存不足则编辑 `watcher_service.py` 将 `-np 8` 改 `-np 4` 或 `-np 2` 后重启（收养检查会自动按新参数重拉，无需手动杀进程）
 - 端口冲突 → 改 `PORT`/`MPORT` 常量后重启（后续步骤同步改端口）
 
+## 第 5b 步：开机自启（**必做**，漏了这步等于翻译能力会随重启消失）
+
+> **立节缘由（2026-10-11 实测欠账）**：原手册只写到「启动观察器（常驻）」，
+> 但**通篇没有开机自启步骤**，机器上计划任务 / 启动文件夹 / 注册表 Run 三处均查不到
+> watcher 项。后果：重启后服务不会自己起来，而 DSH 插件的本地翻译链路只等 15 秒
+> （`dsh-think-translate/lib/index.js:280`），冷启动加载 1.47GB 模型远超此时限，
+> 表现为「思考不翻译了」——用户侧看起来像 GPU 故障，实为服务压根没起。
+> 本步把这一环补上（踩坑实录 D 条其实早已写有「可配合计划任务做掉线自愈」，但从未落地）。
+
+【命令】把启动脚本放进当前用户启动文件夹（**免管理员**，不需要提权）：
+
+```powershell
+$startup = [Environment]::GetFolderPath('Startup')
+$lnk = Join-Path $startup 'think-zh watcher.lnk'
+$ws = New-Object -ComObject WScript.Shell
+$sc = $ws.CreateShortcut($lnk)
+$sc.TargetPath       = "$TZ\app\start_watcher.cmd"
+$sc.WorkingDirectory = "$TZ\app"
+$sc.WindowStyle      = 7      # 最小化，避免开机抢焦点
+$sc.Description      = 'think-zh watcher (autostart, idempotent)'
+$sc.Save()
+```
+
+【验证】
+```powershell
+$v = (New-Object -ComObject WScript.Shell).CreateShortcut("$([Environment]::GetFolderPath('Startup'))\think-zh watcher.lnk")
+$v.TargetPath                       # 应为 $TZ\app\start_watcher.cmd
+Test-Path $v.TargetPath             # 应为 True
+```
+
+【幂等性说明】`start_watcher.cmd` 启动前会**握手实测 18765 端口**，已在监听则直接跳过并返回 0，
+**不会产生抢端口的第二个实例**。因此「开机自启」与「手工执行 `start_watcher.cmd`」可以并存。
+
+【开机自启链路实测记录（2026-10-11，三轮冷启动验证）】
+```
+停掉 watcher → 执行 start_watcher.cmd → cmd 壳 1.24s 退出（不阻塞）
+  → 新 pythonw 拉起 → 日志依次：
+      [tm] 规范索引构建: 146284 条
+      [watcher] 回放追平，进入实时模式
+      [model] 收养检查：清掉 1 个外部/旧参数 llama-server   ← 旧参数进程被按当前参数重拉
+      [http] http://127.0.0.1:18765
+      [model] 已按当前参数重拉 llama-server（np=8）
+  → /api/stats model_up=True → 端到端译文正确
+```
+
+【实现细节（供排障）】启动逻辑在 `app\start_watcher.py`，`.cmd` 只是薄壳。两个已实测的坑：
+- **不能用 `start /b`**：`/b` 让 pythonw 继承控制台，父 cmd 会挂住不退出（实测留下挂死 cmd 壳）。
+- **`.cmd` 注释必须纯 ASCII**：cmd 在 `chcp 65001` 生效**之前**就按 ANSI 解析整个文件，
+  中文 `rem` 行会变成 `'熬锛坈md' 不是内部或外部命令` 这类乱码报错（实测踩中）。
+  中文说明一律写进 `.py`，`.cmd` 里只保留 ASCII。
+- 日志重定向由 **Python 自己 `open()` 持有句柄**，不依赖 cmd 的 `>>` 语义（后者在文件被占用时会报错）。
+
+【失败处理】
+- 开机后没起来 → 先手工跑 `start_watcher.cmd` 看输出；再查 `watcher.log` 尾部
+- 快捷方式没生效 → 确认它落在**当前用户**的 Startup 目录（`[Environment]::GetFolderPath('Startup')`），
+  不是 `C:\ProgramData\...`（那个需要管理员）
+- 需要「进程级掉线自愈」（不只开机自启）→ 见「踩坑实录 D」：另建计划任务周期跑 `start_watcher.cmd`，
+  幂等设计保证重复执行安全
+
 ## 第 6 步：显示层插件（仅 DSH 用户需要；其他工具跳到「通用接入」）
 
 【命令】
