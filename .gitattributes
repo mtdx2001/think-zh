@@ -1,0 +1,28 @@
+# 行尾策略（2026-10-11 立）
+#
+# 立此文件缘由：本仓库 core.autocrlf=true 且原先无 .gitattributes，
+# git 检出时会把仓库内的 LF 自动改写成 CRLF，导致
+#   - INSTALL.md / *.py 的行尾被悄悄改写，下次 diff 出现「整文件都变了」的伪变更
+#   - 与「改既有文件保持原行尾」的编码铁律直接冲突
+# 故在此显式声明行尾，不依赖全局 autocrlf。
+
+# 文本文件一律 LF（与仓库现状一致）
+* text=auto eol=lf
+
+# .cmd/.bat 必须 CRLF：cmd 在 LF 下 label/for 块解析不稳（本项目已实测）
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# .sh 必须 LF 且 shebang 前绝不准有 BOM（BOM 会让内核把 shebang 当解释器路径）
+*.sh text eol=lf
+
+# 二进制/大件不参与行尾转换
+*.gguf binary
+*.dll binary
+*.exe binary
+*.zip binary
+*.zstd binary
+*.sqlite3 binary
+*.png binary
+*.jpg binary
+*.gif binary
