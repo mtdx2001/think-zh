@@ -302,52 +302,122 @@ class TailDecoder:
 
 import zstandard as zstd
 
-def watcher_loop():
-    path = live["session"]
-    if not path:
-        print("[watcher] 无会话文件"); return
+def _tail_one(path, stop_event=None):
+    """尾随单个会话文件：只处理新增内容，不刷屏。
+
+    2026-10-11 新增（多会话并行）：原实现是「单文件尾随 + 每 20 秒重探测最新」，
+    而 `_newest_session()` 用 max 单选——两个会话同时活跃时会反复横跳，
+    谁在探测瞬间更新就切给谁，**另一个会话的内容整段丢失**。
+    实测场景：两个 DSH 会话同时活跃（ddfc4c7b 与 afe1e990 交替更新），
+    两边都翻不全，用户看到的就是「另一个会话翻译还是有问题」。
+    正解：每个活跃会话各起一个尾随线程，互不干扰。
+    """
     dec = TailDecoder()
-    off = 0
-    caught_up = False
-    f = open(path, "rb")
-    live["tail_ready"] = True
-    print(f"[watcher] tailing {path} (replay from 0)")
-    # 会话切换自愈：SESSION 常量只在启动时定死，DSH 新开会话后本线程会盯着死文件静默停摆。
-    # 每 20 秒重探测最新会话文件，发现切换则转向新文件并从其尾部继续（不回放历史，不刷屏）。
-    # 显式指定 DSH_SESSION_JSONL 时视为调试/演示用法，不自动切换。
-    explicit = bool(os.environ.get("DSH_SESSION_JSONL"))
-    last_probe = time.time()
-    last_switch = 0.0
-    while True:
-        try:
-            if not explicit and time.time() - last_probe > 20 and time.time() - last_switch > 120:
-                last_probe = time.time()
-                newest = _newest_session()
-                if newest and newest != path and os.path.exists(newest):
-                    print(f"[watcher] 会话切换: ...\\{os.path.basename(os.path.dirname(path))} -> ...\\{os.path.basename(os.path.dirname(newest))}", flush=True)
-                    try: f.close()
-                    except Exception: pass
-                    path = newest
-                    with live["lock"]:
-                        live["session"] = newest
-                    f = open(path, "rb")
-                    off = f.seek(0, 2)   # 只翻新会话的后续内容
-                    dec = TailDecoder()
-                    caught_up = True
-                    last_switch = time.time()
+    try:
+        f = open(path, "rb")
+    except Exception as e:
+        print(f"[watcher] 打开失败 {os.path.basename(os.path.dirname(path))}: {e}", flush=True)
+        return
+    # 从文件尾部起（历史内容不回放，避免每次启动刷屏且旧块会被 allow_model=False 丢弃）
+    off = f.seek(0, 2)
+    caught_up = True
+    tag = os.path.basename(os.path.dirname(path))[:24]
+    print(f"[watcher] tailing {tag} (from tail)", flush=True)
+    idle_rounds = 0
+    try:
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
             f.seek(off)
             data = f.read()
             if data:
+                idle_rounds = 0
                 off += len(data)
                 text = dec.feed(data).decode("utf-8", errors="replace")
                 for line in text.split("\n")[:-1]:   # 只处理完整行
                     handle_line(line, allow_model=caught_up)
-            elif not caught_up:
-                caught_up = True
-                print("[watcher] 回放追平，进入实时模式")
+            else:
+                idle_rounds += 1
+                # 长时间无新增即退出（由监督线程按需重开），防线程泄漏。
+                # 15 分钟无写入 ≈ 该会话已结束；重开时从新尾部继续，代价只是一次 seek。
+                if idle_rounds > 2250:   # 2250 * 0.4s = 900s
+                    print(f"[watcher] {tag} 空闲超时，释放尾随线程", flush=True)
+                    break
             time.sleep(0.4)
+    except Exception as e:
+        print(f"[watcher] {tag} 尾随异常: {str(e)[:100]}", flush=True)
+    finally:
+        try: f.close()
+        except Exception: pass
+
+
+def _active_sessions(within_seconds=1800):
+    """所有会话根下「最近活跃」的会话文件（默认 30 分钟内有写入）。
+
+    多会话并行监听用。限制窗口是必要的：三个根合计可能有数百个历史会话，
+    全部开线程既浪费也无意义。30 分钟覆盖一次正常对话的间歇。
+    """
+    roots = [os.environ.get("DSH_HOME", os.path.expanduser("~/.dsh"))]
+    extra = os.environ.get("DSH_SESSION_ROOTS", "")
+    roots += [p.strip() for p in extra.split(";") if p.strip()]
+    now = time.time()
+    out = []
+    for root in roots:
+        try:
+            for p in glob.glob(os.path.join(root, "sessions", "**", "session.jsonl.zstd"), recursive=True):
+                try:
+                    if now - os.path.getmtime(p) <= within_seconds:
+                        out.append(p)
+                except OSError:
+                    continue
+        except Exception:
+            continue
+    return out
+
+
+def watcher_loop():
+    """监督线程：为每个活跃会话维持一个尾随线程（2026-10-11 多会话并行）。"""
+    explicit = os.environ.get("DSH_SESSION_JSONL")
+    if explicit:
+        # 显式指定 = 调试/演示用法：只跟这一个，不自动扩展
+        live["tail_ready"] = True
+        _tail_one(explicit)
+        return
+
+    started = {}   # path -> (thread, stop_event)
+    while True:
+        try:
+            active = _active_sessions()
+            if active:
+                live["tail_ready"] = True
+
+            # 回收已结束的线程
+            for p in list(started.keys()):
+                th, ev = started[p]
+                if not th.is_alive():
+                    ev.set()
+                    del started[p]
+
+            # 为新出现的活跃会话起尾随线程
+            for p in active:
+                if p in started and started[p][0].is_alive():
+                    continue
+                ev = threading.Event()
+                th = threading.Thread(target=_tail_one, args=(p, ev), daemon=True)
+                th.start()
+                started[p] = (th, ev)
+
+            # 观察页显示：取当前正在尾随的会话（多个时任取其一，仅作展示）
+            with live["lock"]:
+                if started:
+                    live["session"] = max(started.keys(), key=os.path.getmtime)
+
+            if len(started) > 1:
+                print(f"[watcher] 并行尾随 {len(started)} 个活跃会话", flush=True)
+
+            time.sleep(20)
         except Exception as e:
-            print("[watcher] err:", str(e)[:100]); time.sleep(2)
+            print("[watcher] err:", str(e)[:100], flush=True); time.sleep(2)
 
 def handle_line(line, allow_model=True):
     # 2026-10-11 修复（思考流「看不见」的根因）：

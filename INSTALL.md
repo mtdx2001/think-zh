@@ -113,7 +113,7 @@ New-Item -ItemType Directory -Force "$TZ\models" | Out-Null
 New-Item -ItemType Directory -Force "$TZ\app\cache" | Out-Null
 Copy-Item "$TZ\app\seed\tm-share.sqlite3" "$TZ\app\cache\tm.sqlite3" -Force
 ```
-【验证】`$TZ\app\cache\tm.sqlite3` 存在且 ≈ 25.4 MB
+【验证】`$TZ\app\cache\tm.sqlite3` 存在且 ≈ 80 MB
 【说明】该库含 75,353 句已精修译文（已剔敏）。导入后新推理句子大量直接命中。
 
 ## 第 5 步：启动观察器（常驻）

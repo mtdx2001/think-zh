@@ -107,6 +107,21 @@ def main():
         roots = cfg["dsh_session_roots"]
         env["DSH_SESSION_ROOTS"] = ";".join(roots) if isinstance(roots, list) else str(roots)
 
+    # 2026-10-11：清掉从 DSH 会话继承来的 DSH_SESSION_JSONL。
+    #
+    # 缘由（实测）：DSH 会向每个会话进程注入 DSH_SESSION_JSONL=<当前会话文件>。
+    # 从 DSH 的终端里执行 start_watcher.cmd 时该变量被继承，watcher_service 见它
+    # 非空即走「只跟这一个文件」的分支——于是**另一个同时活跃的会话完全不翻译**。
+    # 实测现场：两个 DSH 会话同时活跃（ddfc4c7b 与 afe1e990），只有被注入的那个有译文。
+    #
+    # 该变量本意是调试/演示（手动指定单个会话回放），不该在正常启动时被动继承，
+    # 故此处默认清除；确需单会话调试时，在 local_config.json 里显式写
+    # "dsh_session_jsonl": "<路径>"，或直接设同名环境变量（显式设置优先，不清）。
+    if cfg.get("dsh_session_jsonl"):
+        env["DSH_SESSION_JSONL"] = cfg["dsh_session_jsonl"]
+    elif not env.get("TZ_KEEP_SESSION_JSONL"):
+        env.pop("DSH_SESSION_JSONL", None)
+
     # 由本进程持有日志句柄并传给子进程：这是不阻塞的关键
     exe = find_pythonw()
     if not exe:
